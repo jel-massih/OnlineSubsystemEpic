@@ -1,6 +1,9 @@
 #include "OnlineSubsystemEpic.h"
 
+#include "eos_logging.h"
 #include "OnlineSessionInterfaceEpic.h"
+#include "OnlineIdentityInterfaceEpic.h"
+#include "OnlineSubsystemEpicModule.h"
 #include "PlatformFilemanager.h"
 
 namespace FNetworkProtocolTypes
@@ -8,9 +11,24 @@ namespace FNetworkProtocolTypes
 	const FLazyName Epic(TEXT("Epic"));
 }
 
+void EOSSDKLoggingCallback(const EOS_LogMessage* InMsg)
+{
+	if(InMsg)
+	{
+		const FString Message( InMsg->Message );
+		EPIC_OS_LOG(Display, TEXT( "EOSSDKLoggingCallback: %s" ), *Message );
+	}
+}
+
+
 IOnlineSessionPtr FOnlineSubsystemEpic::GetSessionInterface() const
 {
 	return SessionInterface;
+}
+
+IOnlineIdentityPtr FOnlineSubsystemEpic::GetIdentityInterface() const
+{
+	return IdentityInterface;
 }
 
 IOnlineFriendsPtr FOnlineSubsystemEpic::GetFriendsInterface() const
@@ -30,6 +48,7 @@ bool FOnlineSubsystemEpic::Init()
 
 	if(bEpicInit)
 	{
+		IdentityInterface = MakeShareable(new FOnlineIdentityEpic(*this));
 		SessionInterface = MakeShareable(new FOnlineSessionEpic(*this));
 	}
 	else
@@ -42,13 +61,26 @@ bool FOnlineSubsystemEpic::Init()
 
 bool FOnlineSubsystemEpic::Shutdown()
 {
-	UE_LOG_ONLINE(Display, TEXT("FOnlineSubsystemEpic::Shutdown()"));
+	EPIC_OS_LOG(Display, TEXT("FOnlineSubsystemEpic::Shutdown()"));
 
 	FOnlineSubsystemImpl::Shutdown();
 
 	SessionInterface.Reset();
+	IdentityInterface.Reset();
 
 	bEpicInit = false;
+	return true;
+}
+
+bool FOnlineSubsystemEpic::Tick(float DeltaTime)
+{
+	FOnlineSubsystemImpl::Tick(DeltaTime);
+
+	if(PlatformHandle)
+	{
+		EOS_Platform_Tick(PlatformHandle);
+	}
+
 	return true;
 }
 
@@ -104,19 +136,19 @@ FString FOnlineSubsystemEpic::GetClientSecret()
 
 bool FOnlineSubsystemEpic::InitEpicSDK() const
 {
-	UE_LOG_ONLINE(Log, TEXT("Epic Online Subsystem Initializing..."));
+	EPIC_OS_LOG(Display, TEXT("Epic Online Subsystem Initializing..."));
 
 	const auto EpicProductName = GetProductName();
 	if(EpicProductName.IsEmpty())
 	{
-		UE_LOG_ONLINE(Warning, TEXT("Missing ProductName key in OnlineSubsystemEpic of DefaultEngine.ini"));
+		EPIC_OS_LOG(Warning, TEXT("Missing ProductName key in OnlineSubsystemEpic of DefaultEngine.ini"));
 		return false;
 	}
 	
 	const auto EpicProductVersion = GetProductVersion();
 	if(EpicProductVersion.IsEmpty())
 	{
-		UE_LOG_ONLINE(Warning, TEXT("Missing ProductVersion key in OnlineSubsystemEpic of DefaultEngine.ini"));
+		EPIC_OS_LOG(Warning, TEXT("Missing ProductVersion key in OnlineSubsystemEpic of DefaultEngine.ini"));
 		return false;
 	}
 
@@ -134,18 +166,28 @@ bool FOnlineSubsystemEpic::InitEpicSDK() const
 	EOS_EResult InitResult = EOS_Initialize(&SDKOptions);
 	if(InitResult != EOS_EResult::EOS_Success)
 	{
-		UE_LOG_ONLINE(Warning, TEXT("EOS SDK Initialization Failed!"));
+		EPIC_OS_LOG(Warning, TEXT("EOS SDK Initialization Failed!"));
 		return false;
 	}
-
 	
-	UE_LOG_ONLINE(Log, TEXT("EOS SDK Initialization Success!"));
+	EOS_EResult SetLogCallbackResult = EOS_Logging_SetCallback(&EOSSDKLoggingCallback);
+	if (SetLogCallbackResult != EOS_EResult::EOS_Success)
+	{
+		EPIC_OS_LOG(Warning, TEXT("EOS SDK Set Logging Callback Failed!"));
+	}
+	else
+	{
+		EPIC_OS_LOG(Warning, TEXT("EOS SDK Logging Callback Set!"));
+		EOS_Logging_SetLogLevel(EOS_ELogCategory::EOS_LC_ALL_CATEGORIES, EOS_ELogLevel::EOS_LOG_VeryVerbose);
+	}
+	
+	EPIC_OS_LOG(Display, TEXT("EOS SDK Initialization Success!"));
 	return true;
 }
 
 bool FOnlineSubsystemEpic::InitEpicPlatform()
 {
-	UE_LOG_ONLINE(Log, TEXT("Epic Online Services Platform Initializing..."));
+	EPIC_OS_LOG(Display, TEXT("Epic Online Services Platform Initializing..."));
 
 	EOS_Platform_Options PlatformOptions = {};
 	PlatformOptions.ApiVersion = EOS_PLATFORM_OPTIONS_API_LATEST;
@@ -154,7 +196,7 @@ bool FOnlineSubsystemEpic::InitEpicPlatform()
 	PlatformOptions.Flags = 0;
 
 #if WITH_EDITOR
-	PlatformOptions.Flags |= EOS_PF_LOADING_IN_EDITOR;
+	//PlatformOptions.Flags |= EOS_PF_LOADING_IN_EDITOR;
 #endif
 
 	//Create a cache directory if one doesnt already exist to store player / title storage data 
@@ -163,7 +205,7 @@ bool FOnlineSubsystemEpic::InitEpicPlatform()
 	{
 		if(!FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*CacheDirectory))
 		{
-			UE_LOG_ONLINE(Warning, TEXT("Epic Online Services Failed to create Cache Directory: %s"), *CacheDirectory);
+			EPIC_OS_LOG(Warning, TEXT("Epic Online Services Failed to create Cache Directory: %s"), *CacheDirectory);
 			return false;
 		}
 	}
@@ -172,35 +214,35 @@ bool FOnlineSubsystemEpic::InitEpicPlatform()
 	const auto EpicProductId = GetProductId();
 	if(EpicProductId.IsEmpty())
 	{
-		UE_LOG_ONLINE(Warning, TEXT("Missing ProductId key in OnlineSubsystemEpic of DefaultEngine.ini"));
+		EPIC_OS_LOG(Warning, TEXT("Missing ProductId key in OnlineSubsystemEpic of DefaultEngine.ini"));
 		return false;
 	}
 
 	const auto EpicSandboxId = GetSandboxId();
 	if(EpicSandboxId.IsEmpty())
 	{
-		UE_LOG_ONLINE(Warning, TEXT("Missing SandboxId key in OnlineSubsystemEpic of DefaultEngine.ini"));
+		EPIC_OS_LOG(Warning, TEXT("Missing SandboxId key in OnlineSubsystemEpic of DefaultEngine.ini"));
 		return false;
 	}
 
 	const auto EpicDeploymentId = GetDeploymentId();
 	if(EpicDeploymentId.IsEmpty())
 	{
-		UE_LOG_ONLINE(Warning, TEXT("Missing DeploymentId key in OnlineSubsystemEpic of DefaultEngine.ini"));
+		EPIC_OS_LOG(Warning, TEXT("Missing DeploymentId key in OnlineSubsystemEpic of DefaultEngine.ini"));
 		return false;
 	}
 	
 	const auto EpicClientId = GetClientId();
 	if(EpicDeploymentId.IsEmpty())
 	{
-		UE_LOG_ONLINE(Warning, TEXT("Missing DeploymentId key in OnlineSubsystemEpic of DefaultEngine.ini"));
+		EPIC_OS_LOG(Warning, TEXT("Missing DeploymentId key in OnlineSubsystemEpic of DefaultEngine.ini"));
 		return false;
 	}
 
 	const auto EpicClientSecret = GetClientSecret();
 	if(EpicDeploymentId.IsEmpty())
 	{
-		UE_LOG_ONLINE(Warning, TEXT("Missing DeploymentId key in OnlineSubsystemEpic of DefaultEngine.ini"));
+		EPIC_OS_LOG(Warning, TEXT("Missing DeploymentId key in OnlineSubsystemEpic of DefaultEngine.ini"));
 		return false;
 	}
 
@@ -213,10 +255,11 @@ bool FOnlineSubsystemEpic::InitEpicPlatform()
 	PlatformHandle = EOS_Platform_Create(&PlatformOptions);
 	if(!PlatformHandle)
 	{
-		UE_LOG_ONLINE(Warning, TEXT("EOS SDK Failed To Create Platform!"));
+		EPIC_OS_LOG(Warning, TEXT("EOS SDK Failed To Create Platform!"));
 		return false;
 	}
 	
-	UE_LOG_ONLINE(Log, TEXT("EOS SDK Create Platform Success!"));
+	EPIC_OS_LOG(Display, TEXT("EOS SDK Create Platform Success!"));
 	return true;
 }
+

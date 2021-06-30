@@ -20,6 +20,9 @@ public:
 
 	virtual IOnlineSubsystemPtr CreateSubsystem(FName InstanceName) override
 	{
+		UE_LOG(LogEpicOS, Log, TEXT("TEST UE_LOG"));
+		EPIC_OS_LOG(Log, TEXT("TEST EPIC_OS_LOG"));
+		UE_LOG_ONLINE(Log, TEXT("TEST UE_LOG_ONLINE"));
 		if(!EpicSub.IsValid())
 		{
 			EpicSub = MakeShared<FOnlineSubsystemEpic, ESPMode::ThreadSafe>(InstanceName);
@@ -27,7 +30,7 @@ public:
 			{
 				if(!EpicSub->Init())
 				{
-					UE_LOG_ONLINE(Warning, TEXT("Epic API failed to initialize"));
+					EPIC_OS_LOG(Warning, TEXT("Epic API failed to initialize"));
 					EpicSub = nullptr;
 				}
 			}
@@ -37,18 +40,17 @@ public:
 				EpicSub->Shutdown();
 				EpicSub = nullptr;
 			}
-
 			return EpicSub;
 		}
-
-		UE_LOG_ONLINE(Warning, TEXT("Can't create more than one instance of Epic Online Subsystem!"));
+		
+		EPIC_OS_LOG(Warning, TEXT("Cannot Create more than one instance of Epic Online Subsystem!"));
 		return nullptr;
 	}
 };
 
 void FOnlineSubsystemEpicModule::StartupModule()
 {
-	UE_LOG_ONLINE(Log, TEXT("Epic Startup!"));
+	EPIC_OS_LOG(Log, TEXT("Epic Startup!"));
 
 	FString BaseDir = IPluginManager::Get().FindPlugin("OnlineSubsystemEpic")->GetBaseDir();
 	
@@ -74,7 +76,7 @@ void FOnlineSubsystemEpicModule::StartupModule()
 
 void FOnlineSubsystemEpicModule::ShutdownModule()
 {
-	UE_LOG_ONLINE(Log, TEXT("Epic Shutdown!"));
+	EPIC_OS_LOG(Log, TEXT("Epic Shutdown!"));
 
 	
 	FOnlineSubsystemModule& OSS = FModuleManager::GetModuleChecked<FOnlineSubsystemModule>("OnlineSubsystem");
@@ -83,3 +85,6 @@ void FOnlineSubsystemEpicModule::ShutdownModule()
 	delete EpicFactory;
 	EpicFactory = nullptr;
 }
+
+
+DEFINE_LOG_CATEGORY( LogEpicOS );
